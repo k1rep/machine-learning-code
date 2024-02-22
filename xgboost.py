@@ -111,7 +111,7 @@ class DecisionTree:
             self.print_tree(tree.false_branch, indent + indent)
 
 
-class XGBoostTree(DecisionTree):
+class XGBoostRegressionTree(DecisionTree):
     # 节点分裂
     def _split(self, y):
         col = int(np.shape(y)[1] / 2)
@@ -146,21 +146,17 @@ class XGBoostTree(DecisionTree):
     def fit(self, X, y):
         self._impurity_calculation = self._gain_by_taylor
         self._leaf_value_calculation = self._approximate_update
-        super(XGBoostTree, self).fit(X, y)
+        super(XGBoostRegressionTree, self).fit(X, y)
 
 
-class CrossEntropy:
-    def loss(self, y, y_pred):
-        y_pred = np.clip(y_pred, 1e-15, 1 - 1e-15)
-        return -y * np.log(y_pred) - (1 - y) * np.log(1 - y_pred)
+class LeastSquaresLoss:
+    """Least squares loss"""
 
-    def gradient(self, y, y_pred):
-        y_pred = np.clip(y_pred, 1e-15, 1 - 1e-15)
-        return -(y / y_pred) + (1 - y) / (1 - y_pred)
+    def gradient(self, actual, predicted):
+        return actual - predicted
 
-    def hess(self, y, y_pred):
-        y_pred = np.clip(y_pred, 1e-15, 1 - 1e-15)
-        return y / (y_pred ** 2) + (1 - y) / ((1 - y_pred) ** 2)
+    def hess(self, actual, predicted):
+        return np.ones_like(actual)
 
 
 class XGBoost:
@@ -171,11 +167,11 @@ class XGBoost:
         self.min_samples_split = min_samples_split  # 节点分裂最小样本数
         self.min_impurity = min_impurity  # 节点分裂最小增益
 
-        self.loss = CrossEntropy()  # 损失函数
+        self.loss = LeastSquaresLoss()  # 损失函数
 
         self.estimators = []
         for _ in range(n_estimators):
-            tree = XGBoostTree(
+            tree = XGBoostRegressionTree(
                 min_samples_split=self.min_samples_split,
                 min_impurity=self.min_impurity,
                 max_depth=self.max_depth,
@@ -184,41 +180,43 @@ class XGBoost:
             self.estimators.append(tree)
 
     def fit(self, X, y):
-        y = to_categorical(y)
+        # y = to_categorical(y)
+        m = X.shape[0]
+        y = np.reshape(y, (m, -1))
         y_pred = np.zeros(np.shape(y))
         for i in range(self.n_estimators):
             tree = self.estimators[i]
             y_and_pred = np.concatenate((y, y_pred), axis=1)
             tree.fit(X, y_and_pred)
             update_pred = tree.predict(X)
-            y_pred -= np.multiply(self.learning_rate, update_pred)
+            update_pred = np.reshape(update_pred, (m, -1))
+            y_pred += update_pred
 
     def predict(self, X):
         y_pred = None
+        m = X.shape[0]
+        # Make predictions
         for tree in self.estimators:
+            # Estimate gradient and update prediction
             update_pred = tree.predict(X)
+            update_pred = np.reshape(update_pred, (m, -1))
             if y_pred is None:
                 y_pred = np.zeros_like(update_pred)
-            y_pred -= np.multiply(self.learning_rate, update_pred)
-        y_pred = np.exp(y_pred) / np.sum(np.exp(y_pred), axis=1, keepdims=True)
-        y_pred = np.argmax(y_pred, axis=1)
+            y_pred += update_pred
+
         return y_pred
 
 
 if __name__ == '__main__':
     from sklearn import datasets
     from sklearn.model_selection import train_test_split
-    from sklearn.metrics import accuracy_score
+    from sklearn.metrics import classification_report
 
-    data = datasets.load_iris()
+    data = datasets.load_breast_cancer()
     X = data.data
     y = data.target
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
-
-    clf = XGBoost(n_estimators=500, learning_rate=0.01, max_depth=5)
-
-    clf.fit(X_train, y_train)
-    y_pred = clf.predict(X_test)
-    accuracy = accuracy_score(y_test, y_pred)
-
-    print ("Accuracy:", accuracy)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=123)
+    model = XGBoost(n_estimators=300, learning_rate=0.001, max_depth=10)
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_test)
+    print(classification_report(y_test, y_pred))
