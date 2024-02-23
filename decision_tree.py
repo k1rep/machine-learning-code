@@ -1,21 +1,28 @@
 import numpy as np
 
 
-def to_categorical(x, n_col=None):
-    """ One-hot encoding of nominal values """
-    if not n_col:
-        n_col = np.amax(x) + 1
-    one_hot = np.zeros((x.shape[0], n_col))
-    one_hot[np.arange(x.shape[0]), x] = 1
-    return one_hot
-
-
 def divide_on_feature(X, feature_i, threshold):
     if isinstance(threshold, (int, float)):
         mask = X[:, feature_i] >= threshold
     else:
         mask = X[:, feature_i] == threshold
     return X[mask], X[~mask]
+
+
+def calculate_entropy(y):
+    class_labels = np.unique(y)
+    entropy = 0
+    for label in class_labels:
+        p = len(y[y == label]) / len(y)
+        entropy -= p * np.log2(p)
+    return entropy
+
+
+def calculate_variance(y):
+    mean = np.ones(np.shape(y)) * y.mean(axis=0)
+    n_samples = np.shape(y)[0]
+    variance = (1 / n_samples) * np.diag((y - mean).T.dot(y - mean))
+    return variance
 
 
 class DecisionTreeNode:
@@ -111,112 +118,79 @@ class DecisionTree:
             self.print_tree(tree.false_branch, indent + indent)
 
 
-class XGBoostRegressionTree(DecisionTree):
-    # 节点分裂
-    def _split(self, y):
-        col = int(np.shape(y)[1] / 2)
-        y, y_pred = y[:, :col], y[:, col:]
-        return y, y_pred
+class ClassificationTree(DecisionTree):
+    def _calculate_information_gain(self, y, y1, y2):
+        p = len(y1) / len(y)
+        entropy = calculate_entropy(y)
+        info_gain = entropy - p * calculate_entropy(y1) - (1 - p) * calculate_entropy(y2)
+        return info_gain
 
-    # 计算增益
-    def _gain(self, y, y_pred):
-        Gradient = np.power((y * self.loss.gradient(y, y_pred)).sum(), 2)
-        Hessian = self.loss.hess(y, y_pred).sum()
-        return 0.5 * (Gradient / Hessian)
-
-    # 计算树分裂增益
-    def _gain_by_taylor(self, y, y1, y2):
-        y, y_pred = self._split(y)
-        y1, y1_pred = self._split(y1)
-        y2, y2_pred = self._split(y2)
-        true_gain = self._gain(y1, y1_pred)
-        false_gain = self._gain(y2, y2_pred)
-        gain = self._gain(y, y_pred)
-        return true_gain + false_gain - gain
-
-    # 计算叶子节点最优权重
-    def _approximate_update(self, y):
-        y, y_pred = self._split(y)
-        # Newton's Method
-        gradient = np.sum(y * self.loss.gradient(y, y_pred), axis=0)
-        hessian = np.sum(self.loss.hess(y, y_pred), axis=0)
-        update_approximation = gradient / hessian
-        return update_approximation
+    def _majority_vote(self, y):
+        most_common = None
+        max_count = 0
+        for label in np.unique(y):
+            count = len(y[y == label])
+            if count > max_count:
+                most_common = label
+                max_count = count
+        return most_common
 
     def fit(self, X, y):
-        self._impurity_calculation = self._gain_by_taylor
-        self._leaf_value_calculation = self._approximate_update
-        super(XGBoostRegressionTree, self).fit(X, y)
+        self._impurity_calculation = self._calculate_information_gain
+        self._leaf_value_calculation = self._majority_vote
+        super(ClassificationTree, self).fit(X, y)
 
 
-class LeastSquaresLoss:
-    """Least squares loss"""
+class RegressionTree(DecisionTree):
+    def _calculate_variance_reduction(self, y, y1, y2):
+        var_total = calculate_variance(y)
+        var_1 = calculate_variance(y1)
+        var_2 = calculate_variance(y2)
+        frac_1 = len(y1) / len(y)
+        frac_2 = len(y2) / len(y)
+        variance_reduction = var_total - (frac_1 * var_1 + frac_2 * var_2)
+        return sum(variance_reduction)
 
-    def gradient(self, actual, predicted):
-        return actual - predicted
-
-    def hess(self, actual, predicted):
-        return np.ones_like(actual)
-
-
-class XGBoost:
-    def __init__(self, n_estimators=200, learning_rate=0.001, max_depth=2, min_samples_split=2, min_impurity=1e-7):
-        self.n_estimators = n_estimators  # 树的数量
-        self.learning_rate = learning_rate  # 学习率
-        self.max_depth = max_depth  # 树的最大深度
-        self.min_samples_split = min_samples_split  # 节点分裂最小样本数
-        self.min_impurity = min_impurity  # 节点分裂最小增益
-
-        self.loss = LeastSquaresLoss()  # 损失函数
-
-        self.estimators = []
-        for _ in range(n_estimators):
-            tree = XGBoostRegressionTree(
-                min_samples_split=self.min_samples_split,
-                min_impurity=self.min_impurity,
-                max_depth=self.max_depth,
-                loss=self.loss
-            )
-            self.estimators.append(tree)
+    def _mean_of_y(self, y):
+        value = np.mean(y, axis=0)
+        return value if len(value) > 1 else value[0]
 
     def fit(self, X, y):
-        # y = to_categorical(y)
-        m = X.shape[0]
-        y = np.reshape(y, (m, -1))
-        y_pred = np.zeros(np.shape(y))
-        for i in range(self.n_estimators):
-            tree = self.estimators[i]
-            y_and_pred = np.concatenate((y, y_pred), axis=1)
-            tree.fit(X, y_and_pred)
-            update_pred = tree.predict(X)
-            update_pred = np.reshape(update_pred, (m, -1))
-            y_pred += update_pred
-
-    def predict(self, X):
-        y_pred = None
-        m = X.shape[0]
-        # Make predictions
-        for tree in self.estimators:
-            # Estimate gradient and update prediction
-            update_pred = tree.predict(X)
-            update_pred = np.reshape(update_pred, (m, -1))
-            if y_pred is None:
-                y_pred = np.zeros_like(update_pred)
-            y_pred += update_pred
-
-        return y_pred
+        self._impurity_calculation = self._calculate_variance_reduction
+        self._leaf_value_calculation = self._mean_of_y
+        super(RegressionTree, self).fit(X, y)
 
 
-if __name__ == '__main__':
-    from sklearn import datasets
+if __name__ == "__main__":
+    from sklearn.datasets import load_iris
     from sklearn.model_selection import train_test_split
     from sklearn.metrics import classification_report
 
-    data = datasets.load_breast_cancer()
+    data = load_iris()
     X = data.data
     y = data.target
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=123)
-    model = XGBoost(n_estimators=300, learning_rate=0.001, max_depth=10)
-    model.fit(X_train, y_train)
-    y_pred = model.predict(X_test)
-    print(classification_report(y_test, y_pred))
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.4, random_state=42)
+
+    clf = ClassificationTree()
+    clf.fit(X_train, y_train)
+    # clf.print_tree()
+
+    y_pred = clf.predict(X_test)
+    accuracy = classification_report(y_test, y_pred)
+    print("Accuracy:", accuracy)
+
+    from sklearn.datasets import load_boston
+    from sklearn.metrics import mean_squared_error
+
+    data = load_boston()
+    X = data.data
+    y = data.target
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.4, random_state=42)
+
+    reg = RegressionTree()
+    reg.fit(X_train, y_train)
+    # reg.print_tree()
+
+    y_pred = reg.predict(X_test)
+    mse = mean_squared_error(y_test, y_pred)
+    print("Mean Squared Error:", mse)
