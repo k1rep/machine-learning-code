@@ -1,5 +1,5 @@
 from autograd import numpy as np
-from autograd import elementwise_grad
+from autograd import grad
 
 
 def mean_squared_loss(y_true, y_pred):
@@ -7,12 +7,14 @@ def mean_squared_loss(y_true, y_pred):
 
 
 def binary_crossentropy(y_true, y_pred):
-    return np.mean(-np.sum(y_true * np.log(np.clip(y_pred, 1e-15, 1 - 1e-15)) + (1 - y_true) * np.log(1 - np.clip(y_pred, 1e-15, 1 - 1e-15))))
+    epsilon = 1e-15
+    y_pred = np.clip(y_pred, epsilon, 1 - epsilon)
+    return -np.mean(y_true * np.log(y_pred) + (1 - y_true) * np.log(1 - y_pred))
 
 
 class FactorizationMachine:
     def __init__(self, n_components=10, learning_rate=0.0001, n_iter=100, init_stdev=0.1,
-                 reg_v=0.1, reg_w=0.5, reg_bias=0.0):
+                 reg_v=0.1, reg_w=0.8, reg_bias=0.0):
         self.bias = None
         self.V = None
         self.weights = None
@@ -37,9 +39,9 @@ class FactorizationMachine:
         if X.size == 0:
             raise ValueError("Got an empty matrix.")
         if X.ndim == 1:
-            self.n_samples, self.n_features = 1, X.shape
+            self.n_samples, self.n_features = 1, len(X)
         else:
-            self.n_samples, self.n_features = X.shape[0], np.prod(X.shape[1:])
+            self.n_samples, self.n_features = X.shape
         self.X = X
         if y_required:
             if y is None:
@@ -48,6 +50,8 @@ class FactorizationMachine:
                 y = np.array(y)
             if y.size == 0:
                 raise ValueError("The targets array must be no-empty.")
+        if y.ndim == 1:
+            y = y.reshape(-1, 1)
         self.y = y
 
     def fit(self, X, y):
@@ -58,28 +62,34 @@ class FactorizationMachine:
         for _ in range(self.n_iter):
             y_pred = self.predict(X)
             loss = self.loss_grad(y, y_pred)
-            w_grad = np.dot(loss, X) / float(self.n_samples)
-            self.weights -= self.learning_rate * w_grad + 2 * self.reg_w * self.weights
-            self.bias -= self.learning_rate * (loss.mean() + 2 * self.reg_bias * self.bias)
+            w_grad = np.dot(X.T, loss) / self.n_samples
+            self.weights -= self.learning_rate * (w_grad + 2 * self.reg_w * self.weights)
+            self.bias -= self.learning_rate * (np.mean(loss) + 2 * self.reg_bias * self.bias)
             self._factor_step(loss)
 
     def _factor_step(self, loss):
-        for ix, x in enumerate(self.X):
-            for i in range(self.n_features):
-                v_grad = loss[ix] * (x.dot(self.V).dot(x[i])[0] - self.V[i] * x[i] ** 2)
-                self.V[i] -= self.learning_rate * v_grad + (2 * self.reg_v * self.V[i])
+        for i in range(self.n_features):
+            # 计算 Xi * V[i]，这里 Xi 是特征 i 的值
+            xiV = self.X[:, i:i + 1] * self.V[i]
+            # 计算 (XV - XiV) * Xi，这是对于特征 i 的交互项梯度部分
+            XV_minus_xiV = self.X.dot(self.V) - xiV
+            grad_component = XV_minus_xiV * self.X[:, i:i + 1]
+            v_grad = np.dot(grad_component.T, loss).reshape(self.n_components, ) / self.n_samples
+            self.V[i] -= self.learning_rate * (v_grad + 2 * self.reg_v * self.V[i])
 
     def predict(self, X):
-        linear = np.dot(X, self.weights) + self.bias
-        interactions = np.dot(X, self.V) ** 2 - np.dot(X ** 2, self.V ** 2)
-        return linear + interactions.sum(axis=1) / 2.0
+        if not isinstance(X, np.ndarray):
+            X = np.array(X)
+        linear_part = np.dot(X, self.weights) + self.bias
+        interaction_part = 0.5 * np.sum(np.power(X.dot(self.V), 2) - (X ** 2).dot(self.V ** 2), axis=1, keepdims=True)
+        return linear_part + interaction_part.flatten()
 
 
 class FMRegressor(FactorizationMachine):
     def __init__(self):
         super(FMRegressor, self).__init__()
         self.loss = mean_squared_loss
-        self.loss_grad = elementwise_grad(mean_squared_loss)
+        self.loss_grad = grad(mean_squared_loss)
 
     def fit(self, X, y):
         super(FMRegressor, self).fit(X, y)
@@ -89,14 +99,14 @@ class FMClassifier(FactorizationMachine):
     def __init__(self):
         super(FMClassifier, self).__init__()
         self.loss = binary_crossentropy
-        self.loss_grad = elementwise_grad(binary_crossentropy)
+        self.loss_grad = grad(binary_crossentropy)
 
     def fit(self, X, y):
         super(FMClassifier, self).fit(X, y)
 
     def predict(self, X):
         predictions = super(FMClassifier, self).predict(X)
-        return np.sign(predictions)
+        return np.round(1 / (1 + np.exp(-predictions)))
 
 
 if __name__ == '__main__':
