@@ -34,7 +34,7 @@ class TSNE:
             betamin = -np.inf
             betamax = np.inf
             Di = D[i, np.concatenate((np.r_[0:i], np.r_[i+1:n]))]
-            H, thisP = self._Hbeta(Di, beta[i])
+            H, thisP = self._Hbeta(Di, beta[i, 0])
 
             Hdiff = H - logU
             tries = 0
@@ -51,7 +51,7 @@ class TSNE:
                         beta[i] = beta[i] / 2.
                     else:
                         beta[i] = (beta[i] + betamin) / 2.
-                H, thisP = self._Hbeta(Di, beta[i])
+                H, thisP = self._Hbeta(Di, beta[i, 0])
                 Hdiff = H - logU
                 tries += 1
             P[i, np.concatenate((np.r_[0:i], np.r_[i+1:n]))] = thisP
@@ -121,7 +121,7 @@ if __name__ == "__main__":
     X = digits.data
     y = digits.target
 
-    tsne = TSNE(no_dims=2, initial_dims=50, perplexity=30.0, n_iter=1000, learning_rate=200.0, random_state=42)
+    tsne = TSNE(no_dims=2, initial_dims=64, perplexity=30.0, n_iter=1000, learning_rate=200.0, random_state=42)
     X_tsne = tsne.fit_transform(X)
 
     plt.scatter(X_tsne[:, 0], X_tsne[:, 1], c=y, cmap="tab10")
