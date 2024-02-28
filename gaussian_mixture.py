@@ -48,7 +48,8 @@ class GaussianMixture:
     def compute_log_likelihood(self, X):
         log_likelihood = 0
         for k in range(self.n_components):
-            log_likelihood += np.sum(np.log(self.pi[k] * self.gaussian_density(X, self.means[k], self.covariances[k])))
+            log_likelihood += np.sum(np.log(
+                self.pi[k] * self.gaussian_density(X, self.means[k], self.covariances[k]) + 1e-6))
         return log_likelihood
 
     def fit(self, X):
@@ -70,8 +71,8 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     from sklearn.datasets import make_blobs
 
-    X, y = make_blobs(n_samples=500, centers=10, random_state=42)
-    gmm = GaussianMixture(n_components=10)
+    X, y = make_blobs(n_samples=50000, centers=50, random_state=42)
+    gmm = GaussianMixture(n_components=50)
     gmm.fit(X)
     y_pred = gmm.predict(X)
 
