@@ -76,7 +76,7 @@ if __name__ == "__main__":
     gmm.fit(X)
     y_pred = gmm.predict(X)
 
-    for i in range(10):
+    for i in range(50):
         plt.scatter(X[y_pred == i, 0], X[y_pred == i, 1], label=f'Cluster {i + 1}')
 
     plt.legend()
