@@ -1,0 +1,26 @@
+language: python
+python:
+  - "3.8"
+  - "3.9"
+  - "3.10"
+
+# 指定分支，只有指定的分支提交时才会运行CI
+branches:
+  only:
+    - master
+
+# 安装依赖
+# install:
+#  - pip install -r requirements.txt
+
+# 运行测试
+script:
+  - pytest
+
+# 可选：部署步骤
+# deploy:
+#  provider: heroku
+#  api_key: $HEROKU_API_KEY
+#  app: your-app-name
+#  on:
+#    branch: main
