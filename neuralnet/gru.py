@@ -8,12 +8,13 @@ from neuralnet.initializations import get_initializer
 from neuralnet.parameters import Parameters
 
 
-class RNN(Layer, ParamMixin):
-    """Vanilla RNN layer."""
+class GRU(Layer, ParamMixin):
     def __init__(self, hidden_dim, activation='tanh', inner_init='orthogonal', parameters=None, return_sequences=True):
         self.hidden_dim = hidden_dim
         self.activation = get_activations(activation)
         self.activation_d = elementwise_grad(self.activation)
+        self.sigmoid = get_activations('sigmoid')
+        self.sigmoid_d = elementwise_grad(self.sigmoid)
         self.inner_init = get_initializer(inner_init)
         self.return_sequences = return_sequences
         if parameters is None:
@@ -24,6 +25,10 @@ class RNN(Layer, ParamMixin):
         self.states = None
         self.hprev = None
         self.input_dim = None
+        self.outputs = None
+        self.W = None
+        self.U = None
+        self.gates = None
 
     def setup(self, x_shape):
         """
@@ -34,13 +39,20 @@ class RNN(Layer, ParamMixin):
         """
         self.input_dim = x_shape[2]
 
-        # input -> hidden
-        self._params["W"] = self._params.init((self.input_dim, self.hidden_dim))
-        # bias
-        self._params["b"] = np.full((self.hidden_dim, ), self._params.initial_bias)
-        # hidden -> hidden
-        self._params["U"] = self.inner_init((self.hidden_dim, self.hidden_dim))
+        # GRU parameters: reset and update gates, and candidate hidden state
+        W_params = ["W_z", "W_r", "W_h"]
+        U_params = ["U_z", "U_r", "U_h"]
+        b_params = ["b_z", "b_r", "b_h"]
+        # initialize parameters
+        for param in W_params:
+            self._params[param] = self._params.init((self.input_dim, self.hidden_dim))
+        for param in U_params:
+            self._params[param] = self.inner_init((self.hidden_dim, self.hidden_dim))
+        for param in b_params:
+            self._params[param] = np.zeros((self.hidden_dim,))
 
+        self.W = [self._params[p] for p in W_params]
+        self.U = [self._params[p] for p in U_params]
         self._params.init_grad()
 
         self.hprev = np.zeros((x_shape[0], self.hidden_dim))
@@ -48,17 +60,28 @@ class RNN(Layer, ParamMixin):
     def forward_pass(self, X):
         self.last_input = X
         n_samples, n_timesteps, input_shape = X.shape
-        states = np.zeros((n_samples, n_timesteps + 1, self.hidden_dim))
-        states[:, -1, :] = self.hprev.copy()
         p = self._params
+
+        self.states = np.zeros((n_samples, n_timesteps, self.hidden_dim))
+        self.gates = {k: np.zeros((n_samples, n_timesteps, self.hidden_dim)) for k in ["z", "r", "h"]}
+        self.outputs = np.zeros_like(self.states)
+
         for i in range(n_timesteps):
-            states[:, i, :] = np.tanh(np.dot(X[:, i, :], p["W"]) + np.dot(states[:, i-1, :], p["U"]) + p["b"])
-        self.states = states
-        self.hprev = states[:, n_timesteps-1, :].copy()
-        if self.return_sequences:
-            return states[:, 0:-1, :]
-        else:
-            return states[:, -2, :]
+            x_t = X[:, i, :]
+            h_prev = self.outputs[:, i - 1, :] if i > 0 else self.hprev
+
+            z = self.sigmoid(np.dot(x_t, p["W_z"]) + np.dot(h_prev, p["U_z"]) + p["b_z"])
+            r = self.sigmoid(np.dot(x_t, p["W_r"]) + np.dot(h_prev, p["U_r"]) + p["b_r"])
+            h_candidate = self.activation(np.dot(x_t, p["W_h"]) + np.dot(r * h_prev, p["U_h"]) + p["b_h"])
+
+            h = (1 - z) * h_prev + z * h_candidate
+            self.outputs[:, i, :] = h
+            self.gates["z"][:, i, :] = z
+            self.gates["r"][:, i, :] = r
+            self.gates["h"][:, i, :] = h_candidate
+
+        self.hprev = self.outputs[:, -1, :].copy()
+        return self.outputs[:, :-1, :] if self.return_sequences else self.outputs[:, -2, :]
 
     def backward_pass(self, delta):
         if len(delta.shape) == 2:
@@ -70,18 +93,52 @@ class RNN(Layer, ParamMixin):
         dh_next = np.zeros((n_samples, input_shape))
         output = np.zeros((n_samples, n_timesteps, self.input_dim))
 
-        for i in reversed(range(n_timesteps)):
-            dhi = self.activation_d(self.states[:, i, :]) * (delta[:, i, :] + dh_next)
-            grad["W"] += np.dot(self.last_input[:, i, :].T, dhi)
-            grad["U"] += np.dot(self.states[:, i-1, :].T, dhi)
-            grad["b"] += np.sum(delta[:, i, :], axis=0)
+        for t in reversed(range(n_timesteps)):
+            x_t = self.last_input[:, t, :]
+            h_prev = self.outputs[:, t - 1, :] if t > 0 else self.hprev
 
-            dh_next = np.dot(dhi, p["U"].T)
-            d = np.dot(delta[:, i, :], p["U"].T)
-            output[:, i, :] = np.dot(d, p["W"].T)
+            z = self.gates["z"][:, t, :]
+            r = self.gates["r"][:, t, :]
+            h_candidate = self.gates["h"][:, t, :]
+            h = self.outputs[:, t, :]
+
+            dh = delta[:, t, :] + dh_next
+            dh_candidate = dh * z
+            dh_prev = dh * (1 - z)
+
+            dz = dh * (h_candidate - h_prev)
+            dr = dh_candidate * (p["U_h"].T @ (r * (1 - r)))
+
+            dW_z = x_t.T @ dz
+            dU_z = h_prev.T @ dz
+            db_z = dz.sum(axis=0)
+
+            dW_r = x_t.T @ dr
+            dU_r = h_prev.T @ dr
+            db_r = dr.sum(axis=0)
+
+            dh_candidate_d = dh_candidate * self.activation_d(h_candidate)
+            dW_h = x_t.T @ (dh_candidate_d * r)
+            dU_h = (r * h_prev).T @ dh_candidate_d
+            db_h = (dh_candidate_d * r).sum(axis=0)
+
+            # Update gradients
+            grad["W_z"] += dW_z
+            grad["U_z"] += dU_z
+            grad["b_z"] += db_z
+
+            grad["W_r"] += dW_r
+            grad["U_r"] += dU_r
+            grad["b_r"] += db_r
+
+            grad["W_h"] += dW_h
+            grad["U_h"] += dU_h
+            grad["b_h"] += db_h
+
+            dh_next = dh_prev + (dh_candidate_d * p["U_h"]).sum(axis=1)
 
         for k in grad.keys():
-            self._params.update_grad(k, grad[k])
+            self._params.update_grad(k, grad[k]/n_samples)
         return output
 
     def shape(self, x_shape):
@@ -98,7 +155,6 @@ if __name__ == '__main__':
     from neuralnet.layers import Activation
     from neuralnet.optimizers import Adam
     from neuralnet.NeuralNetwork import NeuralNetwork
-    from neuralnet.constraints import SmallNorm
     from neuralnet.loss import accuracy
 
     def binary_addition_dataset(dim=10, n_samples=10000, batch_size=64):
@@ -148,7 +204,7 @@ if __name__ == '__main__':
             optimizer=Adam(),
             metric='mse',
             batch_size=64,
-            max_epochs=19,
+            max_epochs=30,
         )
         model.fit(X_train, y_train)
         predictions = np.round(model.predict(X_test))
@@ -157,4 +213,4 @@ if __name__ == '__main__':
         print('Accuracy:', accuracy(y_test, predictions))
 
 
-    binary_addition_problem(RNN(16, parameters=Parameters(constraints={'W': SmallNorm(), 'U': SmallNorm()})))
+    binary_addition_problem(GRU(16))

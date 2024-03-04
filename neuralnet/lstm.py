@@ -9,7 +9,7 @@ from neuralnet.parameters import Parameters
 
 
 class LSTM(Layer, ParamMixin):
-    def __init__(self, hidden_dim,  activation='tanh', inner_init='orthogonal', parameters=None, return_sequences=True):
+    def __init__(self, hidden_dim, activation='tanh', inner_init='orthogonal', parameters=None, return_sequences=True):
         self.hidden_dim = hidden_dim
         self.activation = get_activations(activation)
         self.activation_d = elementwise_grad(self.activation)
