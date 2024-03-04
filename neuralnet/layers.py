@@ -1,7 +1,7 @@
 import numpy as np
 from autograd import elementwise_grad
 
-from neuralnet.paramaters import Parameters
+from neuralnet.parameters import Parameters
 from neuralnet.activations import get_activations
 
 
@@ -175,7 +175,7 @@ class TimeDistributedDense(Layer):
     def forward_pass(self, X):
         n_timesteps = X.shape[1]
         X = X.reshape(-1, X.shape[-1])
-        y = self.dense.backward_pass(X)
+        y = self.dense.forward_pass(X)
         y = y.reshape((-1, n_timesteps, self.output_dim))
         return y
 

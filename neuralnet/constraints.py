@@ -25,7 +25,7 @@ class NonNeg(Constraint):
 
 
 class SmallNorm(Constraint):
-    def clip(self, p, threshold=1e-7):
+    def clip(self, p, threshold=5):
         return np.clip(p, -threshold, threshold)
 
 

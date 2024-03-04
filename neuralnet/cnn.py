@@ -1,7 +1,7 @@
 import autograd.numpy as np
 
 from neuralnet.NeuralNetwork import NeuralNetwork
-from neuralnet.paramaters import Parameters
+from neuralnet.parameters import Parameters
 from neuralnet.layers import Layer, ParamMixin
 
 

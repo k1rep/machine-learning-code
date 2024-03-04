@@ -4,7 +4,7 @@ import numpy as np
 from autograd import elementwise_grad
 
 from neuralnet.layers import PhaseMixin
-from neuralnet.loss import get_loss
+from neuralnet.loss import get_loss, mse_grad
 from neuralnet.optimizers import batch_iterator
 
 np.random.seed(42)
@@ -78,6 +78,8 @@ class NeuralNetwork(BaseEstimator):
         self.loss = get_loss(loss)
         if loss == "binary_cross_entropy":
             self.loss_grad = lambda actual, predicted: -(actual - predicted)
+        elif loss == "mse":
+            self.loss_grad = mse_grad
         else:
             self.loss_grad = elementwise_grad(self.loss, 1)
         self.shuffle = shuffle

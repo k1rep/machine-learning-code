@@ -51,6 +51,11 @@ def mean_squared_error(y_true, y_pred):
     return np.mean(squared_error(y_true, y_pred))
 
 
+def mse_grad(y_true, y_pred):
+    """Calculate gradient of mean squared error."""
+    return 2 * (y_pred - y_true) / y_true.shape[0]
+
+
 def mean_squared_log_error(y_true, y_pred):
     """Calculate mean squared log error."""
     return np.mean(squared_log_error(y_true, y_pred))
