@@ -5,12 +5,14 @@ EPS = 1e-15
 
 def unhot(function):
     """Convert one-hot encoding to one column."""
+
     def wrapper(y_true, y_pred):
         if len(y_true.shape) > 1 and y_true.shape[1] > 1:
             y_true = np.argmax(y_true, axis=1)
         if len(y_pred.shape) > 1 and y_pred.shape[1] > 1:
             y_pred = np.argmax(y_pred, axis=1)
         return function(y_true, y_pred)
+
     return wrapper
 
 
@@ -75,6 +77,12 @@ def binary_cross_entropy(y_true, y_pred):
     """Calculate binary cross-entropy."""
     y_pred = np.clip(y_pred, EPS, 1 - EPS)
     return -np.mean(y_true * np.log(y_pred) + (1 - y_true) * np.log(1 - y_pred))
+
+
+def binary_cross_entropy_grad(y_true, y_pred):
+    """Calculate gradient of binary cross-entropy."""
+    y_pred = np.clip(y_pred, EPS, 1 - EPS)
+    return - (y_true / y_pred - (1 - y_true) / (1 - y_pred)) / y_true.shape[0]
 
 
 def hinge_loss(y_true, y_pred):

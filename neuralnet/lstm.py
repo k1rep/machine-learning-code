@@ -43,7 +43,7 @@ class LSTM(Layer, ParamMixin):
         x_shape : np.array(batch_size, time_steps, input_shape)
             Shape of the input data.
         """
-        self.input_dim = x_shape[2]
+        self.input_dim = x_shape[-1]
 
         # input -> hidden
         W_params = ["W_i", "W_f", "W_o", "W_c"]
@@ -70,6 +70,10 @@ class LSTM(Layer, ParamMixin):
         self.last_input = X
         n_samples, n_timesteps, input_shape = X.shape
         p = self._params
+
+        if self.hprev.shape[0] != n_samples:
+            self.hprev = np.zeros((n_samples, self.hidden_dim))
+            self.oprev = np.zeros((n_samples, self.hidden_dim))
 
         self.states = np.zeros((n_samples, n_timesteps + 1, self.hidden_dim))
         self.outputs = np.zeros((n_samples, n_timesteps + 1, self.hidden_dim))

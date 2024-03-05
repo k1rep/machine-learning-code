@@ -169,8 +169,8 @@ class TimeDistributedDense(Layer):
 
     def setup(self, X_shape):
         self.dense = Dense(self.output_dim)
-        self.dense.setup((X_shape[0], X_shape[2]))
-        self.input_dim = X_shape[2]
+        self.dense.setup((X_shape[0], X_shape[-1]))
+        self.input_dim = X_shape[-1]
 
     def forward_pass(self, X):
         n_timesteps = X.shape[1]
@@ -191,4 +191,39 @@ class TimeDistributedDense(Layer):
         return self.dense._params
 
     def shape(self, x_shape):
+        return x_shape[0], x_shape[1], self.output_dim
+
+
+class EmbeddingLayer(Layer, ParamMixin):
+    def __init__(self, input_dim, output_dim, parameters=None):
+        """
+        初始化嵌入层。
+
+        Parameters
+        ----------
+        input_dim : int
+            词汇表的大小（即，最大整数索引 + 1）。
+        output_dim : int
+            嵌入的维度。
+        """
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self._params = parameters
+        if self._params is None:
+            self._params = Parameters()
+        self.last_input = None
+
+    def setup(self, x_shape):
+        # 嵌入矩阵的形状应为(input_dim, output_dim)
+        self._params.setup_weights((self.input_dim, self.output_dim))
+
+    def forward_pass(self, X):
+        self.last_input = X  # Store the input indices for use in backward pass
+        return self._params['W'][X]
+
+    def backward_pass(self, delta):
+        pass
+
+    def shape(self, x_shape):
+        # 输出形状为(batch_size, sequence_length, output_dim)
         return x_shape[0], x_shape[1], self.output_dim
