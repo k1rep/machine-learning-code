@@ -117,8 +117,7 @@ class NeuralNetwork(BaseEstimator):
     def fit(self, X, y=None):
         if not self._initialized:
             self._setup_layers(X.shape)
-
-        if y.ndim == 1:
+        if y is not None and y.ndim == 1:
             y = y[:, np.newaxis]
         self._setup_input(X, y)
         self.is_training = True
@@ -197,3 +196,8 @@ class NeuralNetwork(BaseEstimator):
 
     def reset(self):
         self._initialized = False
+
+    def __add__(self, network):
+        for l in network.layers:
+            self.layers.append(l)
+        return self

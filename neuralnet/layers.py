@@ -81,7 +81,6 @@ class Dense(Layer, ParamMixin):
     def backward_pass(self, delta):
         d_W = np.dot(self.last_input.T, delta)
         d_b = np.sum(delta, axis=0)
-
         self._params.update_grad("W", d_W)
         self._params.update_grad("b", d_b)
         return delta.dot(self._params['W'].T)

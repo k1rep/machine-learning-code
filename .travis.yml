@@ -11,8 +11,8 @@ python:
 #  - pip install -r requirements.txt
 
 # 运行测试
-#script:
-#  - pytest
+script:
+  - pytest
 
 # 可选：部署步骤
 # deploy:
