@@ -197,7 +197,23 @@ class NeuralNetwork(BaseEstimator):
     def reset(self):
         self._initialized = False
 
-    def __add__(self, network):
-        for l in network.layers:
-            self.layers.append(l)
-        return self
+    def __add__(self, other):
+        # 创建一个新的NeuralNetwork实例
+        new_network = NeuralNetwork(
+            layers=[],
+            optimizer=self.optimizer,  # 或选择 other.optimizer 或一个新的优化器
+            loss="mse",  # 或 other.loss，取决于你的具体需求
+            max_epochs=max(self.max_epochs, other.max_epochs),
+            batch_size=self.batch_size,  # 或 other.batch_size
+            metric="mse",  # 或 other.metric
+            shuffle=self.shuffle,
+            verbose=self.verbose
+        )
+
+        # 合并层
+        new_network.layers = self.layers + other.layers
+
+        # 重新初始化新网络的状态
+        new_network._initialized = False
+
+        return new_network
