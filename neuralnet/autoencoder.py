@@ -1,9 +1,8 @@
 import numpy as np
 
 from neuralnet.NeuralNetwork import NeuralNetwork
-from neuralnet.layers import Layer, ParamMixin, Dense, Activation
+from neuralnet.layers import Dense, Activation
 from neuralnet.optimizers import Adam
-from neuralnet.parameters import Parameters
 
 
 class Autoencoder:
@@ -66,4 +65,3 @@ if __name__ == "__main__":
     model = Autoencoder()
 
     model.fit(X_train)
-
